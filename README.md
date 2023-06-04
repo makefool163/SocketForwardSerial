@@ -3,7 +3,7 @@
 
 Forward socket service to another computer via a serial port
 
-This programe is Not like socat or netcat, which can only forward one connect to host, and when the connect is closed, it shall unused.
+This program is Not like socat or netcat, which can only forward one connect to host, and when the connect is closed, it shall unused.
 
 It can allow mulit-connect to socket server through one serial channel, and each connection will not affect each other.
 
