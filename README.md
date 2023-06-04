@@ -26,3 +26,9 @@ options:
   -port PORT          Connect to Server port when act as source/Listen port when act as target, default is 22
   -com COM            Serial Port
   -baudrate BAUDRATE  Serial Port baudrate
+  
+  3. Speical
+  
+  This program used eventlet lib package to do some green threads, so you must install evenlet by "pip install eventlet" or "conda install eventlei".
+  
+  I used eventlet lib package for long ago, it very smart and lightweight.
