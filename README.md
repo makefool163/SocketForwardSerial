@@ -10,6 +10,7 @@ It can allow mulit-connect to socket server through one serial channel, and each
 When one connect is closed, the channel can wait other connections is initiated.
 
 2. How to use
+
 You can run ser2socket.py to set its work in the source or targer. Indeed, only need a program that can act the server and client two functions. Because most base function is same in both side.
 
 usage: ser2socket.py [-h] [-ip IP] -port PORT -com COM [-baudrate BAUDRATE] {S,T}
