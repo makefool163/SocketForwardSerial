@@ -7,7 +7,7 @@ This program is Not like socat or netcat, which can only forward one connect to 
 
 It can allow mulit-connect to socket server through one serial channel, and each connection will not affect each other.
 
-When one connect is closed, the channel can wait other connections is initiated.
+When some connects are closed, the channel can wait other connection is initiated.
 
 2. How to use
 
