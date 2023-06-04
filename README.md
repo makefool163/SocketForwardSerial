@@ -8,7 +8,8 @@ When some connects are closed, the channel can wait other connection is initiate
 
 **2. How to use**
 
-You can run ser2socket.py to set its work in the source or targer. Indeed, only need a program that can run in the server and client both side and to do different functions. Because most base function is same in both side.
+You can run ser2socket.py to set its work in the source or targer. Indeed, only need a program that can run in the server and client both side and to do different functions. Because most base function is same in both side.  
+Start the client and server side regardless of the order, of course, must be both starts, and you can start a new socket connection.
 
 usage: ser2socket.py [-h] [-ip IP] -port PORT -com COM [-baudrate BAUDRATE] {S,T}  
 Forward socket service to another computer via a serial port.  
