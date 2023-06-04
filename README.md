@@ -1,8 +1,12 @@
 # SocketForwardSerial
 1. Summary
+
 Forward socket service to another computer via a serial port
-This branch is Not like socat or netcat, which can only forward one connect to host, and when the connect is closed, it shall unused.
+
+This programe is Not like socat or netcat, which can only forward one connect to host, and when the connect is closed, it shall unused.
+
 It can allow mulit-connect to socket server through one serial channel, and each connection will not affect each other.
+
 When one connect is closed, the channel can wait other connections is initiated.
 
 2. How to use
