@@ -22,9 +22,13 @@ positional arguments:
 
 options:
   -h, --help          show this help message and exit
+  
   -ip IP              Connect to Server IP when act as Source, default is localhost.
+  
   -port PORT          Connect to Server port when act as source/Listen port when act as target, default is 22
+  
   -com COM            Serial Port
+  
   -baudrate BAUDRATE  Serial Port baudrate
   
   3. Speical
