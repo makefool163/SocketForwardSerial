@@ -40,7 +40,8 @@ class Ser2socket_Base:
         self.ip = ip
         self.port = port
         self.com_port = com_port
-        self.com = SerialSocket(com_port, baud_rate) # baud_rate = 115200
+        self.com = SerialSocket(port=com_port, timeout=None, baudrate=baud_rate)
+        # baud_rate = 115200
         self.socket_pool = eventlet.queue.Queue() # socket连接序号的pool
         for i in range(0xFE):
             self.socket_pool.put(i)
@@ -60,7 +61,7 @@ class Ser2socket_Base:
                 self.socket_pool.put(socket_id)
                 break
             # 重新组合数据，处理FF
-            d = d.replace(b"\xff",b"\xff")
+            d = d.replace(b"\xff",b"\xff\xff")
             d = b"\xff" + struct.pack("!B", socket_id) + d
             self.com_send_Queue.put(d)
     def net_send(self):
@@ -83,13 +84,15 @@ class Ser2socket_Base:
     def com_recv(self):
         while True:
             try:
-                g = eventlet.spawn(self.com.recv)
+                g = self.pool.spawn(self.com.recv)
                 d = g.wait() # 协程读取com口
+                """
                 if self.debug:
-                    self.print_hex(d, "_")                
+                    self.print_hex(d, "_")
+                """
                 b = b""
                 while len(d) > 0:
-                    d0 = d
+                    d0 = d[0:1]
                     d = d[1:]
                     if self.com_in_status:
                         # 前导处理状态
@@ -106,16 +109,19 @@ class Ser2socket_Base:
                             b += d0
                 if len(b) > 0:
                     self.net_send_Queue.put((self.com_sock_id_online, b))
-                    b = b""
             except (SystemExit, KeyboardInterrupt):
                 break
     def com_leading_packet_proc(self):
-        if self.com_leading_packet_buf[1] == b"\xFF":
-            self.net_send_Queue.put(self.com_sock_id_online, b"\xFF")
+        if len(self.com_leading_packet_buf) >= 2 \
+            and self.com_leading_packet_buf[:2] == b"\xff\xff":
+            self.net_send_Queue.put((self.com_sock_id_online, b"\xff"))
+            self.com_leading_packet_buf = b""
             self.com_in_status = False
         else:
-            if len(self.com_leading_packet_buf) == 2:
-                self.com_sock_id_online = struct.unpack("!B", self.com_leading_packet_buf[1])
+            if len(self.com_leading_packet_buf) >= 2 \
+                and self.com_leading_packet_buf[:2] != b"\xff\xfe":
+                self.com_sock_id_online = self.com_leading_packet_buf[1]
+                self.com_leading_packet_buf = b""
                 self.com_in_status = False
 
 class Ser2socket_Client(Ser2socket_Base):
@@ -130,31 +136,35 @@ class Ser2socket_Client(Ser2socket_Base):
         while True:
             try:
                 new_sock, address = server.accept()
+                print("accepted", address, end=" ")
                 try:
                     socket_id = self.socket_pool.get()
                 except queue.Empty:
                     # 连接池已经空了，不能连接了
                     new_sock.close()
+                    print ("accept fail.")
                 self.socket_stock[socket_id] = new_sock
                 out_str = b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x00"
                 self.com_send_Queue.put(out_str)
-                print("accepted", address)
                 self.pool.spawn_n(self.net_recv, new_sock, socket_id)
                 # 启动网络 收报 协程
+                print ("accept success.")
             except (SystemExit, KeyboardInterrupt):
                 break
     def com_leading_packet_proc(self):
-        if self.com_leading_packet_buf[1] == b"\xFE":
-            if len(self.com_leading_packet_buf) == 4:
-                if self.com_leading_packet_buf[-1] == b"\x01":
-                    # 运行在客户模式下：
-                    # 服务器返回连接失败的处理
-                    id = struct.unpack("!B", self.com_Forward_buf[1])
-                    sock = self.socket_stock[id]
-                    sock.close()
-                    # 此处可以不回收 id，断开后，在net_recv中会有处理
-                    # self.socket_pool.put(id)
-                    self.com_in_status = False
+        if len(self.com_leading_packet_buf) >=4 \
+            and self.com_leading_packet_buf[1] == b"\xFE" \
+            and self.com_leading_packet_buf[3] == b"\x01":
+                # 运行在客户模式下：
+                # 服务器返回连接失败的处理
+                id = struct.unpack("!B", self.com_Forward_buf[1])
+                sock = self.socket_stock[id]
+                # 不管 close 是否 成功, 先必须把前导符号消除，因为 close 的动作会进入协程切换状态
+                self.com_leading_packet_buf = b""
+                self.com_in_status = False
+                sock.close()
+                # 此处可以不回收 id，断开后，在net_recv中会有处理
+                # self.socket_pool.put(id)
         super().com_leading_packet_proc()
 
 class Ser2socket_Server(Ser2socket_Base):
@@ -166,28 +176,34 @@ class Ser2socket_Server(Ser2socket_Base):
         self.pool.spawn_n(self.net_send)
         self.com_recv() # 进入读取 com 口的循环
     def com_leading_packet_proc(self):
-        if self.com_leading_packet_buf[1] == b"\xFE":
-            if len(self.com_leading_packet_buf) == 4:
-                if self.com_leading_packet_buf[-1] == b"\x00":
-                    # 运行在服务器模式下：
-                    # 收到客户端的连接请求的处理
-                    id = struct.unpack("!B", self.com_leading_packet_buf[2])
-                    try:
-                        sock = eventlet.connect((self.ip, self.port))
-                        self.socket_stock[id] = sock
-                        print("accepted", id)
-                        self.pool.spawn_n(self.com_recv, sock, id)
-                        # 启动网络 收报 协程
-                    except:
-                        # 连接服务失败
-                        out_str = b"\xff\xfe" + struct.pack("!B", id) + b"\x01"
-                        self.com_send_Queue.put(out_str)
+        #print ("buf:",self.com_leading_packet_buf)
+        if len(self.com_leading_packet_buf) >=4 \
+            and self.com_leading_packet_buf[:2] == b"\xff\xfe" \
+            and self.com_leading_packet_buf[3] == 0x00:
+                # 运行在服务器模式下：
+                # 收到客户端的连接请求的处理
+                print ("try fork ...", self.ip, self.port, end=" ")
+                id = self.com_leading_packet_buf[2]
+                # 不管 connect 是否 成功, 先必须把前导符号消除，因为 connect 的动作会进入协程切换状态
+                self.com_leading_packet_buf = b""
+                self.com_in_status = False
+                try:
+                    sock = eventlet.connect((self.ip, self.port))
+                    print ("fork a connect", end=" ")
+                    self.socket_stock[id] = sock
+                    print("accepted", id)
+                    self.pool.spawn_n(self.net_recv, sock, id)
+                    # 启动网络 收报 协程
+                except:
+                    # 连接服务失败
+                    out_str = b"\xff\xfe" + struct.pack("!B", id) + b"\x01"
+                    self.com_send_Queue.put(out_str)
         super().com_leading_packet_proc()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Forward socket service to another computer via a serial port.")
     parser.add_argument('Action', choices=['S', 'T'], type=str, help='act as forwarding Source or Target')
-    parser.add_argument('-ip', default='0.0.0.0', type=str, help="Connect to Server IP when act as Source, default is 0.0.0.0")
+    parser.add_argument('-ip', default='localhost', type=str, help="Connect to Server IP when act as Source, default is localhost")
     parser.add_argument('-port', default=22, type=int, nargs=1, required=True, help='Connect to Server port when act as source/Listen port when act as target, default is 22')
     parser.add_argument('-com', type=str, nargs=1, required=True, help="Serial Port")
     parser.add_argument('-baudrate', type=int, default=115200, help="Serial Port baudrate")
