@@ -24,7 +24,6 @@ options:
   -d, --debug         set debug out
   
   **3. Speical**
-  
-  
+    
   This program used eventlet and pyserial lib package to do some green threads, so you must install evenlet by "pip install eventlet pyserial" or "conda install eventle pyserial".    
   I used eventlet lib package for long ago, it's very smart and lightweight.
