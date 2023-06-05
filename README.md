@@ -11,7 +11,7 @@ When some connects are closed, the channel can wait other connection is initiate
 You can run ser2socket.py to set its work in the source or targer. Indeed, only need a program that can run in the server and client both side and to do different functions. Because most base function is same in both side.  
 Start the client and server side regardless of the order, of course, must be both starts, and you can start a new socket connection.
 
-usage: ser2socket.py [-h] [-ip IP] -port PORT -com COM [-baudrate BAUDRATE] {S,T}  
+usage: ser2socket.py [-h] [-ip IP] -port PORT -com COM [-baudrate BAUDRATE] -d {S,T}  
 Forward socket service to another computer via a serial port.  
 positional arguments:  
   {S,T}               act as forwarding Source or Target  
@@ -20,7 +20,8 @@ options:
   -ip IP              Connect to Server IP when act as Source, default is localhost.    
   -port PORT          Connect to Server port when act as source/Listen port when act as target, default is 22    
   -com COM            Serial Port    
-  -baudrate BAUDRATE  Serial Port baudrate
+  -baudrate BAUDRATE  Serial Port baudrate  
+  -d, --debug         set debug out
   
   **3. Speical**
   
