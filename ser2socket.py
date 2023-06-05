@@ -58,6 +58,7 @@ class Ser2socket_Base:
             d = sock.recv(32384)
             if d == '':
                 # net 输入断开
+                sock.close()
                 self.socket_pool.put(socket_id)
                 break
             # 重新组合数据，处理FF
@@ -86,10 +87,8 @@ class Ser2socket_Base:
             try:
                 g = self.pool.spawn(self.com.recv)
                 d = g.wait() # 协程读取com口
-                """
                 if self.debug:
                     self.print_hex(d, "_")
-                """
                 b = b""
                 while len(d) > 0:
                     d0 = d[0:1]
