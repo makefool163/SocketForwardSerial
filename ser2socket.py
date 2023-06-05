@@ -55,16 +55,24 @@ class Ser2socket_Base:
         self.pool = eventlet.GreenPool()
     def net_recv(self, sock, socket_id):
         while True:
-            d = sock.recv(32384)
+            try:
+                d = sock.recv(32384)
+            except eventlet.greenlet.GreenletExit:
+                break
+            except Exception as e:
+                break
+            """
             if d == '':
                 # net 输入断开
-                sock.close()
-                self.socket_pool.put(socket_id)
                 break
+            """
             # 重新组合数据，处理FF
             d = d.replace(b"\xff",b"\xff\xff")
             d = b"\xff" + struct.pack("!B", socket_id) + d
             self.com_send_Queue.put(d)
+        # 出现异常，多半是客户端已经断开，此时可以把服务器这边也断掉
+        sock.close()
+        self.socket_pool.put(socket_id)
     def net_send(self):
         while True:
             id, buf = self.net_send_Queue.get(True)
