@@ -15,14 +15,15 @@ import serial
 import queue
 import struct
 import argparse
+from eventlet import tpool, backdoor
 
 class SerialSocket(serial.Serial):
     def recv(self):
         # 等待
-        data = eventlet.tpool.execute(self.read, 1)
+        data = tpool.execute(self.read, 1)
         # 读完
         while self.in_waiting:
-            data += eventlet.tpool.execute(self.read, self.in_waiting)
+            data += tpool.execute(self.read, self.in_waiting)
         return data
 
 def com_listen_message():
@@ -40,7 +41,6 @@ class Ser2socket_Base:
         self.port = port
         self.com_port = com_port
         self.com = SerialSocket(com_port, baud_rate) # baud_rate = 115200
-        self.com_read_interface = eventlet.spawn(self.com.recv)
         self.socket_pool = eventlet.queue.Queue() # socket连接序号的pool
         for i in range(0xFE):
             self.socket_pool.put(i)
@@ -62,28 +62,31 @@ class Ser2socket_Base:
             # 重新组合数据，处理FF
             d = d.replace(b"\xff",b"\xff")
             d = b"\xff" + struct.pack("!B", socket_id) + d
-            self.com_out_Queue.put(d)
+            self.com_send_Queue.put(d)
     def net_send(self):
         while True:
             id, buf = self.net_send_Queue.get(True)
             sock = self.socket_stock[id]
             sock.send(buf)
-    def com_send(self, fd):
-        def print_hex(d):
-            # 把输入的 bytes 打印成 16进制形式
-            hex = ''
-            for dd in d:
-                hex += format(dd, '02x') + " "
-            print (hex, end=" ", flush=True)
+    def print_hex(self, buf, f):
+        # 把输入的 bytes 打印成 16进制形式
+        hex = ''
+        for b in buf:
+            hex += f + format(b, '02x')
+        print (hex, end="", flush=True)
+    def com_send(self):
         while True:
             buf = self.com_send_Queue.get(True)
             self.com.write(buf)
             if self.debug:
-                print_hex(d)
+                self.print_hex(buf, "-")
     def com_recv(self):
         while True:
             try:
-                d = self.com_read_interface.wait() # 协程读取com口
+                g = eventlet.spawn(self.com.recv)
+                d = g.wait() # 协程读取com口
+                if self.debug:
+                    self.print_hex(d, "_")                
                 b = b""
                 while len(d) > 0:
                     d0 = d
@@ -117,6 +120,7 @@ class Ser2socket_Base:
 
 class Ser2socket_Client(Ser2socket_Base):
     def Start(self):
+        print ("self.ip", self.ip)
         server = eventlet.listen((self.ip, self.port), reuse_addr = True, reuse_port=True)
         self.pool.spawn_n(self.com_recv)
         self.pool.spawn_n(self.com_send)        
@@ -132,7 +136,8 @@ class Ser2socket_Client(Ser2socket_Base):
                     # 连接池已经空了，不能连接了
                     new_sock.close()
                 self.socket_stock[socket_id] = new_sock
-                self.com_out_Queue.put(b"\xff\xfe" + struct.pack("!B") + b"\x00")
+                out_str = b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x00"
+                self.com_send_Queue.put(out_str)
                 print("accepted", address)
                 self.pool.spawn_n(self.net_recv, new_sock, socket_id)
                 # 启动网络 收报 协程
@@ -176,21 +181,25 @@ class Ser2socket_Server(Ser2socket_Base):
                     except:
                         # 连接服务失败
                         out_str = b"\xff\xfe" + struct.pack("!B", id) + b"\x01"
-                        self.com_out_Queue.put(out_str)
+                        self.com_send_Queue.put(out_str)
         super().com_leading_packet_proc()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Forward socket service to another computer via a serial port.")
     parser.add_argument('Action', choices=['S', 'T'], type=str, help='act as forwarding Source or Target')
-    parser.add_argument('-ip', default='localhost', type=str, help="Connect to Server IP when act as Source, default is localhost.")
+    parser.add_argument('-ip', default='0.0.0.0', type=str, help="Connect to Server IP when act as Source, default is 0.0.0.0")
     parser.add_argument('-port', default=22, type=int, nargs=1, required=True, help='Connect to Server port when act as source/Listen port when act as target, default is 22')
     parser.add_argument('-com', type=str, nargs=1, required=True, help="Serial Port")
-    parser.add_argument('-baudrate', type=int, default=9600, help="Serial Port baudrate")
+    parser.add_argument('-baudrate', type=int, default=115200, help="Serial Port baudrate")
     parser.add_argument('-d', "--debug", action="store_true", help="set debug out")
+    parser.add_argument('-b', "--backdoor", action="store_true", help="set backdoor debug")
     args = parser.parse_args()
+    #print (args.port)
 
+    if args.backdoor:
+        eventlet.spawn(backdoor.backdoor_server, eventlet.listen(('localhost', 55555)), locals())
     if args.Action == "S":
-        ss = Ser2socket_Server(args.ip, args.port, args.com, args.baudrate, args.debug)
+        ss = Ser2socket_Server(args.ip, args.port[0], args.com[0], args.baudrate, args.debug)
     else:
-        ss = Ser2socket_Client(args.ip, args.port, args.com, args.baudrate, args.debug)
+        ss = Ser2socket_Client(args.ip, args.port[0], args.com[0], args.baudrate, args.debug)
     ss.Start()
