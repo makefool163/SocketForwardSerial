@@ -34,7 +34,8 @@ def com_listen_message():
         buffer +=data
 
 class Ser2socket_Base:
-    def __init__(self, ip, port, com_port, baud_rate):
+    def __init__(self, ip, port, com_port, baud_rate, debug=False):
+        self.debug = debug
         self.ip = ip
         self.port = port
         self.com_port = com_port
@@ -48,7 +49,7 @@ class Ser2socket_Base:
         self.net_send_Queue = eventlet.queue.Queue()
         self.socket_stock = {}
         self.com_in_status = True # False 正常传送状态, True 前导处理状态
-        self.com_Forward_buf = b""
+        self.com_leading_packet_buf = b""
         self.com_sock_id_online = 0 
         self.pool = eventlet.GreenPool()
     def net_recv(self, sock, socket_id):
@@ -68,9 +69,17 @@ class Ser2socket_Base:
             sock = self.socket_stock[id]
             sock.send(buf)
     def com_send(self, fd):
+        def print_hex(d):
+            # 把输入的 bytes 打印成 16进制形式
+            hex = ''
+            for dd in d:
+                hex += format(dd, '02x') + " "
+            print (hex, end=" ", flush=True)
         while True:
             buf = self.com_send_Queue.get(True)
             self.com.write(buf)
+            if self.debug:
+                print_hex(d)
     def com_recv(self):
         while True:
             try:
@@ -81,14 +90,14 @@ class Ser2socket_Base:
                     d = d[1:]
                     if self.com_in_status:
                         # 前导处理状态
-                        self.com_Forward_buf += d0
-                        self.com_Forward_proc()
+                        self.com_leading_packet_buf += d0
+                        self.com_leading_packet_proc()
                     else:
                         if d0 == b"\xff":
                             if len(b) > 0:
                                 self.net_send_Queue.put((self.com_sock_id_online, b))
                                 b = b""
-                            self.com_Forward_buf = b"\xff"
+                            self.com_leading_packet_buf = b"\xff"
                             self.com_in_status = True
                         else:
                             b += d0
@@ -97,13 +106,13 @@ class Ser2socket_Base:
                     b = b""
             except (SystemExit, KeyboardInterrupt):
                 break
-    def com_Forward_proc(self):
-        if self.com_Forward_buf[1] == b"\xFF":
+    def com_leading_packet_proc(self):
+        if self.com_leading_packet_buf[1] == b"\xFF":
             self.net_send_Queue.put(self.com_sock_id_online, b"\xFF")
             self.com_in_status = False
         else:
-            if len(self.com_Forward_buf) == 2:
-                self.com_sock_id_online = struct.unpack("!B", self.com_Forward_buf[1])
+            if len(self.com_leading_packet_buf) == 2:
+                self.com_sock_id_online = struct.unpack("!B", self.com_leading_packet_buf[1])
                 self.com_in_status = False
 
 class Ser2socket_Client(Ser2socket_Base):
@@ -129,10 +138,10 @@ class Ser2socket_Client(Ser2socket_Base):
                 # 启动网络 收报 协程
             except (SystemExit, KeyboardInterrupt):
                 break
-    def com_Forward_proc(self):
-        if self.com_Forward_buf[1] == b"\xFE":
-            if len(self.com_Forward_buf) == 4:
-                if self.com_Forward_buf[-1] == b"\x01":
+    def com_leading_packet_proc(self):
+        if self.com_leading_packet_buf[1] == b"\xFE":
+            if len(self.com_leading_packet_buf) == 4:
+                if self.com_leading_packet_buf[-1] == b"\x01":
                     # 运行在客户模式下：
                     # 服务器返回连接失败的处理
                     id = struct.unpack("!B", self.com_Forward_buf[1])
@@ -141,7 +150,7 @@ class Ser2socket_Client(Ser2socket_Base):
                     # 此处可以不回收 id，断开后，在net_recv中会有处理
                     # self.socket_pool.put(id)
                     self.com_in_status = False
-        super().com_Forward_proc()
+        super().com_leading_packet_proc()
 
 class Ser2socket_Server(Ser2socket_Base):
     def Start(self):
@@ -151,14 +160,13 @@ class Ser2socket_Server(Ser2socket_Base):
         # 只有从com发了连接信号后，才会去连接服务器，产生recv过程
         self.pool.spawn_n(self.net_send)
         self.com_recv() # 进入读取 com 口的循环
-    def com_Forward_proc(self):
-        super().com_Forward_proc()
-        if self.com_Forward_buf[1] == b"\xFE":
-            if len(self.com_Forward_buf) == 4:
-                if self.com_Forward_buf[-1] == b"\x00":
+    def com_leading_packet_proc(self):
+        if self.com_leading_packet_buf[1] == b"\xFE":
+            if len(self.com_leading_packet_buf) == 4:
+                if self.com_leading_packet_buf[-1] == b"\x00":
                     # 运行在服务器模式下：
                     # 收到客户端的连接请求的处理
-                    id = struct.unpack("!B", self.com_Forward_buf[1])
+                    id = struct.unpack("!B", self.com_leading_packet_buf[2])
                     try:
                         sock = eventlet.connect((self.ip, self.port))
                         self.socket_stock[id] = sock
@@ -167,8 +175,9 @@ class Ser2socket_Server(Ser2socket_Base):
                         # 启动网络 收报 协程
                     except:
                         # 连接服务失败
-                        out_str = b"\xff\xfe" + struct.pack("!B", id) + b"\x01"                        self.com_out_Queue.put(out_str)
-        super().com_Forward_proc()
+                        out_str = b"\xff\xfe" + struct.pack("!B", id) + b"\x01"
+                        self.com_out_Queue.put(out_str)
+        super().com_leading_packet_proc()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Forward socket service to another computer via a serial port.")
@@ -177,11 +186,11 @@ if __name__ == "__main__":
     parser.add_argument('-port', default=22, type=int, nargs=1, required=True, help='Connect to Server port when act as source/Listen port when act as target, default is 22')
     parser.add_argument('-com', type=str, nargs=1, required=True, help="Serial Port")
     parser.add_argument('-baudrate', type=int, default=9600, help="Serial Port baudrate")
+    parser.add_argument('-d', "--debug", action="store_true", help="set debug out")
     args = parser.parse_args()
 
     if args.Action == "S":
-        ss = Ser2socket_Server(args.ip, args.port, args.com, args.baudrate)        
+        ss = Ser2socket_Server(args.ip, args.port, args.com, args.baudrate, args.debug)
     else:
-        ss = Ser2socket_Client(args.ip, args.port, args.com, args.baudrate)
-
+        ss = Ser2socket_Client(args.ip, args.port, args.com, args.baudrate, args.debug)
     ss.Start()
