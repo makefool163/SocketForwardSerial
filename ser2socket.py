@@ -6,7 +6,7 @@ from __future__ import absolute_import, print_function
 # 2. FF FE XX 00 新连接发起, XX是约定的新连接序号
 #    服务器端，连接成功后，则不回复，进入正常数据发送
 #    若服务器端连接失败，则返回 FF FE XX 01
-#    客户端的连接脱机断开，从客户端机器向服务器端发送 FF FE XX 01，通知服务器断开自己的内部连接
+#    网络连接断开，向对端发送 FF FE XX 02，通知对端对应的连接
 # 3. FF 00, FF 01, FF 02 ... 作为connect数据包指示导引字符 00, 01, 02的指示对应的连接序号
 #    新连接来的时候，要分配一个00~FD之间的序号，如果没有可分配的，就拒绝连接
 # 4. 需要知道每个数据包的长度吗？（似乎无必要）
@@ -60,18 +60,22 @@ class Ser2socket_Base:
             try:
                 d = sock.recv(32384)
                 # 重新组合数据，处理FF
-                d = d.replace(b"\xff",b"\xff\xff")
-                d = b"\xff" + struct.pack("!B", socket_id) + d
-                self.com_send_Queue.put(d)
-            except eventlet.greenlet.GreenletExit:
-                break
+                if len(d) > 0:
+                    d = d.replace(b"\xff",b"\xff\xff")
+                    d = b"\xff" + struct.pack("!B", socket_id) + d
+                    self.com_send_Queue.put(d)
             except Exception as e:
                 break
         # 出现异常，多半是客户端已经断开，此时可以把服务器这边也断掉
         print ("net_recv closed.")
-        # todo 如果是T端，还要把这个申请传递到S端去...
+        # 还要把这个中断信号传递到对端去... 
+        # 如果是T端还好，告诉S端关闭对应的连接即可
+        # 若是S端中断，说明S端的服务关掉了，啥都没有了
+        # 总归老连接关闭，以后的新连接拒绝服务连接，知道S端的服务恢复
         sock.close()
         self.socket_pool.put(socket_id)
+        self.com_send_Queue.put(b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x02")
+        # 通告服务器端，客户端的连接已经断了
     def net_send(self):
         while True:
             id, buf = self.net_send_Queue.get(True)
@@ -129,15 +133,6 @@ class Ser2socket_Base:
                 self.com_sock_id_online = self.com_leading_packet_buf[1]
                 self.com_leading_packet_buf = b""
                 self.com_in_status = False
-
-class MyServerProtocol(tcp.TCPProtocol):
-    def on_connect(self, client):
-        # 当客户端连接时，执行此操作
-        print("Client connected")
-        
-    def on_close(self, client):
-        # 当客户端关闭连接时，执行此操作
-        print("Client closed")
         
 class Ser2socket_Client(Ser2socket_Base):
     def socket_on_close(self):
@@ -155,6 +150,7 @@ class Ser2socket_Client(Ser2socket_Base):
                 print ("Start Listening accept wait...")
                 new_sock, address = server_sock.accept()
                 new_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                # 启动alive探测
                 new_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
                 # 空闲时间    
                 new_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
@@ -203,8 +199,8 @@ class Ser2socket_Server(Ser2socket_Base):
         self.com_recv() # 进入读取 com 口的循环
     def com_leading_packet_proc(self):
         #print ("buf:",self.com_leading_packet_buf)
-        if len(self.com_leading_packet_buf) >=4 \
-            and self.com_leading_packet_buf[:2] == b"\xff\xfe" \
+        if len(self.com_leading_packet_buf) >=4:
+            if self.com_leading_packet_buf[:2] == b"\xff\xfe" \
             and self.com_leading_packet_buf[3] == 0x00:
                 # 运行在服务器模式下：
                 # 收到客户端的连接请求的处理
@@ -224,6 +220,16 @@ class Ser2socket_Server(Ser2socket_Base):
                     # 连接服务失败
                     out_str = b"\xff\xfe" + struct.pack("!B", id) + b"\x01"
                     self.com_send_Queue.put(out_str)
+            if self.com_leading_packet_buf[:2] == b"\xff\xfe" \
+            and self.com_leading_packet_buf[3] == 0x02:
+                # 运行在服务器模式下：
+                # 收到客户端的连接已中断关闭
+                print ("close connect ", self.com_leading_packet_buf[2])
+                # 不管 是否 成功, 先必须把前导符号消除，避免后面进入协程切换状态
+                self.com_leading_packet_buf = b""
+                self.com_in_status = False
+                sock = self.socket_stock[self.com_leading_packet_buf[2]]
+                sock.close()
         super().com_leading_packet_proc()
 
 if __name__ == "__main__":
