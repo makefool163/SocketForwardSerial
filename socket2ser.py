@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, print_function
 
-# 串口数据流中 FF 作为特殊应用引用字符
-# 1. FF FF = FF 实际字符
-# 2. FF FE XX 00 新连接发起, XX是约定的新连接序号
+# 串口数据流中 FF 每个数据包的标头特殊指示字符
+# 1. FF FF = FF 实际字符，本数据包内容就是 FF
+# 2. FF FE XX YY  
+#    XX是约定的新连接序号
+#   2.1 YY = 00 新连接发起, 
 #    服务器端，连接成功后，则不回复，进入正常数据发送
-#    若服务器端连接失败，则返回 FF FE XX 01
-#    网络连接断开，向对端发送 FF FE XX 02，通知对端对应的连接
-# 3. FF 00, FF 01, FF 02 ... 作为connect数据包指示导引字符 00, 01, 02的指示对应的连接序号
-#    新连接来的时候，要分配一个00~FD之间的序号，如果没有可分配的，就拒绝连接
-# 4. 需要知道每个数据包的长度吗？（似乎无必要）
+#    新连接来的时候，XX要分配一个00~FD之间的序号，如果没有可分配的，就拒绝连接
+#   2.2 YY = 01 若服务器端连接失败，则返回 FF FE XX 01
+#   2.3 YY = 02 若网络连接（无论哪一端）断开，向对端发送 FF FE XX 02，通知对端对应的连接
+# 3. FF XX (XX 不等于 FF 或 FE) 譬如 FF 00, FF 01, FF 02 ... 
+#    XX是约定的新连接序号，后面就是实际的数据包内容，
+#    直到遇到FF（标头特殊指示字符），说明碰到一个新数据包了
 
 import eventlet
 import serial
@@ -75,7 +78,7 @@ class Socket2Ser_Base:
         sock.close()
         self.socket_pool.put(socket_id)
         self.com_send_Queue.put(b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x02")
-        # 通告服务器端，客户端的连接已经断了
+        # 通告对端，网络连接已经断了
     def net_send(self):
         while True:
             id, buf = self.net_send_Queue.get(True)
