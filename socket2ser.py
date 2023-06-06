@@ -36,7 +36,7 @@ def com_listen_message():
         data = g.wait()
         buffer +=data
 
-class Ser2socket_Base:
+class Socket2Ser_Base:
     def __init__(self, ip, port, com_port, baud_rate, debug=False):
         self.debug = debug
         self.ip = ip
@@ -134,7 +134,7 @@ class Ser2socket_Base:
                 self.com_leading_packet_buf = b""
                 self.com_in_status = False
         
-class Ser2socket_Client(Ser2socket_Base):
+class Socket2Ser_Client(Socket2Ser_Base):
     def socket_on_close(self):
         pass
     def Start(self):
@@ -189,7 +189,7 @@ class Ser2socket_Client(Ser2socket_Base):
                 # self.socket_pool.put(id)
         super().com_leading_packet_proc()
 
-class Ser2socket_Server(Ser2socket_Base):
+class Socket2Ser_Server(Socket2Ser_Base):
     def Start(self):
         #pool.spawn_n(self.com_recv)
         self.pool.spawn_n(self.com_send)        
@@ -247,7 +247,7 @@ if __name__ == "__main__":
     if args.backdoor:
         eventlet.spawn(backdoor.backdoor_server, eventlet.listen(('localhost', 55555)), locals())
     if args.Action == "S":
-        ss = Ser2socket_Server(args.ip, args.port[0], args.com[0], args.baudrate, args.debug)
+        ss = Socket2Ser_Server(args.ip, args.port[0], args.com[0], args.baudrate, args.debug)
     else:
-        ss = Ser2socket_Client(args.ip, args.port[0], args.com[0], args.baudrate, args.debug)
+        ss = Socket2Ser_Client(args.ip, args.port[0], args.com[0], args.baudrate, args.debug)
     ss.Start()
