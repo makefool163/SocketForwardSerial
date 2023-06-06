@@ -192,6 +192,21 @@ class Socket2Ser_Client(Socket2Ser_Base):
                 # self.socket_pool.put(id)
         super().com_leading_packet_proc()
 
+
+def send_keepalive():
+    pkt = eventlet.packet.Packet()
+    pkt.__str__() # '\x01\x00\x00\x00\x02\x00\x00\x00' (20 bytes)
+    sock.send(pkt)
+    print('sent keepalive')
+while True:
+    eventlet.sleep(1) # wait for keepalive packet response
+    if not sock.getsockopt(eventlet.socket.SOL_SOCKET, eventlet.socket.SO_ERROR): # check if socket is closed gracefully
+        send_keepalive() # send keepalive packet again if possible
+        break # exit the loop and reconnect to server if necessary
+else:
+    print('connection closed')
+    sock.close() # close the socket when connection is lost unexpectedly
+    
 class Socket2Ser_Server(Socket2Ser_Base):
     def Start(self):
         #pool.spawn_n(self.com_recv)
