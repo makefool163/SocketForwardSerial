@@ -6,6 +6,7 @@ from __future__ import absolute_import, print_function
 # 2. FF FE XX 00 新连接发起, XX是约定的新连接序号
 #    服务器端，连接成功后，则不回复，进入正常数据发送
 #    若服务器端连接失败，则返回 FF FE XX 01
+#    客户端的连接脱机断开，从客户端机器向服务器端发送 FF FE XX 01，通知服务器断开自己的内部连接
 # 3. FF 00, FF 01, FF 02 ... 作为connect数据包指示导引字符 00, 01, 02的指示对应的连接序号
 #    新连接来的时候，要分配一个00~FD之间的序号，如果没有可分配的，就拒绝连接
 # 4. 需要知道每个数据包的长度吗？（似乎无必要）
@@ -16,6 +17,7 @@ import queue
 import struct
 import argparse
 from eventlet import tpool, backdoor
+import socket
 
 class SerialSocket(serial.Serial):
     def recv(self):
@@ -67,6 +69,7 @@ class Ser2socket_Base:
                 break
         # 出现异常，多半是客户端已经断开，此时可以把服务器这边也断掉
         print ("net_recv closed.")
+        # todo 如果是T端，还要把这个申请传递到S端去...
         sock.close()
         self.socket_pool.put(socket_id)
     def net_send(self):
@@ -127,10 +130,21 @@ class Ser2socket_Base:
                 self.com_leading_packet_buf = b""
                 self.com_in_status = False
 
+class MyServerProtocol(tcp.TCPProtocol):
+    def on_connect(self, client):
+        # 当客户端连接时，执行此操作
+        print("Client connected")
+        
+    def on_close(self, client):
+        # 当客户端关闭连接时，执行此操作
+        print("Client closed")
+        
 class Ser2socket_Client(Ser2socket_Base):
+    def socket_on_close(self):
+        pass
     def Start(self):
         print ("self.ip", self.ip)
-        server = eventlet.listen((self.ip, self.port), reuse_addr = True, reuse_port=False, backlog=0xfe)
+        server_sock = eventlet.listen((self.ip, self.port), reuse_addr = True, reuse_port=False, backlog=0xfe)
         self.pool.spawn_n(self.com_recv)
         self.pool.spawn_n(self.com_send)        
         #pool.spawn_n(self.net_recv)
@@ -139,7 +153,14 @@ class Ser2socket_Client(Ser2socket_Base):
         while True:
             try:
                 print ("Start Listening accept wait...")
-                new_sock, address = server.accept()
+                new_sock, address = server_sock.accept()
+                new_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                new_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
+                # 空闲时间    
+                new_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+                # 探测间隔
+                new_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+                # 探测次数
                 print("accepted", address, end=" ")
                 try:
                     socket_id = self.socket_pool.get()
@@ -150,7 +171,8 @@ class Ser2socket_Client(Ser2socket_Base):
                 self.socket_stock[socket_id] = new_sock
                 out_str = b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x00"
                 self.com_send_Queue.put(out_str)
-                self.pool.spawn_n(self.net_recv, new_sock, socket_id)
+                recv_let = self.pool.spawn_n(self.net_recv, new_sock, socket_id)
+                recv_let.link(self.socket_on_close)
                 # 启动网络 收报 协程
                 print ("accept success.")
             except (SystemExit, KeyboardInterrupt):
