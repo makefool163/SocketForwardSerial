@@ -57,20 +57,16 @@ class Ser2socket_Base:
         while True:
             try:
                 d = sock.recv(32384)
+                # 重新组合数据，处理FF
+                d = d.replace(b"\xff",b"\xff\xff")
+                d = b"\xff" + struct.pack("!B", socket_id) + d
+                self.com_send_Queue.put(d)
             except eventlet.greenlet.GreenletExit:
                 break
             except Exception as e:
                 break
-            """
-            if d == '':
-                # net 输入断开
-                break
-            """
-            # 重新组合数据，处理FF
-            d = d.replace(b"\xff",b"\xff\xff")
-            d = b"\xff" + struct.pack("!B", socket_id) + d
-            self.com_send_Queue.put(d)
         # 出现异常，多半是客户端已经断开，此时可以把服务器这边也断掉
+        print ("net_recv closed.")
         sock.close()
         self.socket_pool.put(socket_id)
     def net_send(self):
@@ -134,7 +130,7 @@ class Ser2socket_Base:
 class Ser2socket_Client(Ser2socket_Base):
     def Start(self):
         print ("self.ip", self.ip)
-        server = eventlet.listen((self.ip, self.port), reuse_addr = True, reuse_port=True)
+        server = eventlet.listen((self.ip, self.port), reuse_addr = True, reuse_port=False, backlog=0xfe)
         self.pool.spawn_n(self.com_recv)
         self.pool.spawn_n(self.com_send)        
         #pool.spawn_n(self.net_recv)
@@ -142,6 +138,7 @@ class Ser2socket_Client(Ser2socket_Base):
         self.pool.spawn_n(self.net_send)
         while True:
             try:
+                print ("Start Listening accept wait...")
                 new_sock, address = server.accept()
                 print("accepted", address, end=" ")
                 try:
