@@ -97,8 +97,9 @@ class Socket2Ser_Base:
     def net_send(self):
         while True:
             id, buf = self.net_send_Queue.get(True)
-            sock = self.socket_stock[id]
-            sock.send(buf)
+            if id in self.socket_stock:
+                sock = self.socket_stock[id]
+                sock.send(buf)
     def print_hex(self, buf, f):
         # 把输入的 bytes 打印成 16进制形式
         hex = ''
@@ -179,16 +180,16 @@ class Socket2Ser_Client(Socket2Ser_Base):
                 print("accepted", address, end=" ")
                 try:
                     socket_id = self.socket_pool.get()
+                    self.socket_stock[socket_id] = new_sock
+                    out_str = b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x00"
+                    self.com_send_Queue.put(out_str)
+                    self.pool.spawn_n(self.net_recv, new_sock, socket_id)                
+                    # 启动网络 收报 协程
+                    print ("accept success at: ", socket_id)
                 except queue.Empty:
                     # 连接池已经空了，不能连接了
                     new_sock.close()
                     print ("accept fail.")
-                self.socket_stock[socket_id] = new_sock
-                out_str = b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x00"
-                self.com_send_Queue.put(out_str)
-                self.pool.spawn_n(self.net_recv, new_sock, socket_id)                
-                # 启动网络 收报 协程
-                print ("accept success.")
             except (SystemExit, KeyboardInterrupt):
                 break
     def com_leading_packet_proc(self):
