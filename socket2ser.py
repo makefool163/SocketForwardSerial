@@ -1,18 +1,21 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, print_function
 
-# 串口数据流中 FF 每个数据包的标头特殊指示字符
-# 1. FF FF = FF 实际字符，本数据包内容就是 FF
-# 2. FF FE XX YY  
-#    XX是约定的新连接序号
-#   2.1 YY = 00 新连接发起, 
+# 串口数据流中 每个数据帧由 FF 开始
+# FF 是特殊标识字符，如果在 负载数据中有 FF，则用 连续的两个 FF 代替，即 FF FF = FF 实际字符
+# 遇到 一个 FF，就说明是数据帧的 开始
+# 1. 连接、断开 指示数据帧
+#    FF FE XX YY
+#    XX是约定的连接序号
+#  1) YY = 00 新连接发起, 
 #    服务器端，连接成功后，则不回复，进入正常数据发送
 #    新连接来的时候，XX要分配一个00~FD之间的序号，如果没有可分配的，就拒绝连接
-#   2.2 YY = 01 若服务器端连接失败，则返回 FF FE XX 01
-#   2.3 YY = 02 若网络连接（无论哪S/T端）断开，向对端发送 FF FE XX 02，通知对端相应的连接
-# 3. FF XX (XX 不等于 FF 或 FE) 譬如 FF 00, FF 01, FF 02 ... 
+#  2) YY = 01 若服务器端连接失败，则返回 FF FE XX 01
+#  3) YY = 02 若网络连接（无论哪S/T端）断开，向对端发送 FF FE XX 02，通知对端相应的连接
+# 2. 负载数据帧
+#    FF XX ZZ ZZ (XX 不等于 FF 或 FE) ...
 #    XX是约定的新连接序号，后面就是实际的数据包内容，
-#    直到遇到FF（标头特殊指示字符），说明碰到一个新数据包了
+#    ZZ ZZ 是数据包长度
 
 import eventlet
 import serial
@@ -141,7 +144,7 @@ class Socket2Ser_Base:
             except (SystemExit, KeyboardInterrupt):
                 break
     def com_leading_packet_proc(self):
-        if len(self.com_leading_packet_buf) >= 2 \
+        if len(self.com_leading_packet_buf) == 2 \
             and self.com_leading_packet_buf[:2] == b"\xff\xff":
             self.net_send_Queue.put((self.com_sock_id_online, b"\xff"))
             self.com_leading_packet_buf = b""
