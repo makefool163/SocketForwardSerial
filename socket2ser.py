@@ -9,7 +9,7 @@ from __future__ import absolute_import, print_function
 #    服务器端，连接成功后，则不回复，进入正常数据发送
 #    新连接来的时候，XX要分配一个00~FD之间的序号，如果没有可分配的，就拒绝连接
 #   2.2 YY = 01 若服务器端连接失败，则返回 FF FE XX 01
-#   2.3 YY = 02 若网络连接（无论哪一端）断开，向对端发送 FF FE XX 02，通知对端对应的连接
+#   2.3 YY = 02 若网络连接（无论哪S/T端）断开，向对端发送 FF FE XX 02，通知对端相应的连接
 # 3. FF XX (XX 不等于 FF 或 FE) 譬如 FF 00, FF 01, FF 02 ... 
 #    XX是约定的新连接序号，后面就是实际的数据包内容，
 #    直到遇到FF（标头特殊指示字符），说明碰到一个新数据包了
@@ -60,25 +60,26 @@ class Socket2Ser_Base:
         self.pool = eventlet.GreenPool()
     def net_recv(self, sock, socket_id):
         while True:
-            try:
-                d = sock.recv(32384)
-                # 重新组合数据，处理FF
-                if len(d) > 0:
-                    d = d.replace(b"\xff",b"\xff\xff")
-                    d = b"\xff" + struct.pack("!B", socket_id) + d
-                    self.com_send_Queue.put(d)
-            except Exception as e:
-                break
-        # 出现异常，多半是客户端已经断开，此时可以把服务器这边也断掉
-        print ("net_recv closed.")
-        # 还要把这个中断信号传递到对端去... 
-        # 如果是T端还好，告诉S端关闭对应的连接即可
-        # 若是S端中断，说明S端的服务关掉了，啥都没有了
-        # 总归老连接关闭，以后的新连接拒绝服务连接，知道S端的服务恢复
-        sock.close()
-        self.socket_pool.put(socket_id)
-        self.com_send_Queue.put(b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x02")
-        # 通告对端，网络连接已经断了
+            d = sock.recv(32384)
+            # 重新组合数据，处理FF
+            if len(d) > 0:
+                # eventlet的sock.recv是阻塞模式
+                # 1. 有实际数据来，阻塞会打开，返回实际数据
+                # 2. 对端断开连接，阻塞也会打开，返回空数据
+                d = d.replace(b"\xff",b"\xff\xff")
+                d = b"\xff" + struct.pack("!B", socket_id) + d
+                self.com_send_Queue.put(d)
+            else:
+                # 对端已断开连接
+                # 要把这个中断信号传递到对端去... 
+                # 如果是T端还好，告诉S端关闭对应的连接即可
+                # 若是S端中断，说明S端的服务关掉了，啥都没有了
+                # 总归老连接关闭，以后的新连接拒绝服务连接，直到S端的服务恢复
+                print ("net_recv closed.")
+                sock.close()
+                self.socket_pool.put(socket_id)
+                self.com_send_Queue.put(b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x02")
+                # 通告对端，网络连接已经断了
     def net_send(self):
         while True:
             id, buf = self.net_send_Queue.get(True)
@@ -143,6 +144,15 @@ class Socket2Ser_Client(Socket2Ser_Base):
     def Start(self):
         print ("self.ip", self.ip)
         server_sock = eventlet.listen((self.ip, self.port), reuse_addr = True, reuse_port=False, backlog=0xfe)
+        server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        # 启动alive探测
+        server_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 20)
+        # 空闲时间    
+        server_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 3)
+        # 探测间隔
+        server_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+        # 探测次数
+        # 这样对端连接断开后，最少 29秒后，本端也会断开
         self.pool.spawn_n(self.com_recv)
         self.pool.spawn_n(self.com_send)        
         #pool.spawn_n(self.net_recv)
@@ -152,14 +162,6 @@ class Socket2Ser_Client(Socket2Ser_Base):
             try:
                 print ("Start Listening accept wait...")
                 new_sock, address = server_sock.accept()
-                new_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                # 启动alive探测
-                new_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
-                # 空闲时间    
-                new_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
-                # 探测间隔
-                new_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
-                # 探测次数
                 print("accepted", address, end=" ")
                 try:
                     socket_id = self.socket_pool.get()
