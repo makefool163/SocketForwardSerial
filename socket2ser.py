@@ -60,7 +60,15 @@ class Socket2Ser_Base:
         self.pool = eventlet.GreenPool()
     def net_recv(self, sock, socket_id):
         while True:
-            d = sock.recv(32384)
+            try:
+                d = sock.recv(32384)
+            except Exception as e:
+                # 对付可能的接收错误，特别是sock失效了
+                # 当然可能是被主协程给关掉了
+                if self.debug:
+                    print (e)
+                    # 测试结果的确是，在服务器端，主协程会关这个
+                break
             # 重新组合数据，处理FF
             if len(d) > 0:
                 # eventlet的sock.recv是阻塞模式
@@ -76,10 +84,16 @@ class Socket2Ser_Base:
                 # 若是S端中断，说明S端的服务关掉了，啥都没有了
                 # 总归老连接关闭，以后的新连接拒绝服务连接，直到S端的服务恢复
                 print ("net_recv closed.")
-                sock.close()
-                self.socket_pool.put(socket_id)
-                self.com_send_Queue.put(b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x02")
-                # 通告对端，网络连接已经断了
+                if socket_id in self.socket_stock:
+                    # 字典pop不会被协程切走，先干为快
+                    self.socket_stock.pop(socket_id)
+                    # 下面的三行，应该有很严密的时间先后关系
+                    # 因为在协程体系下，使可能被其他协程切换出去的
+                    sock.close()
+                    self.com_send_Queue.put(b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x02")
+                    self.socket_pool.put(socket_id)
+                    # 通告对端，网络连接已经断了
+                break
     def net_send(self):
         while True:
             id, buf = self.net_send_Queue.get(True)
@@ -143,7 +157,7 @@ class Socket2Ser_Client(Socket2Ser_Base):
         pass
     def Start(self):
         print ("self.ip", self.ip)
-        server_sock = eventlet.listen((self.ip, self.port), reuse_addr = True, reuse_port=False, backlog=0xfe)
+        server_sock = eventlet.listen((self.ip, self.port), reuse_addr = True, backlog=0xfe)
         server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         # 启动alive探测
         server_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 20)
@@ -172,8 +186,7 @@ class Socket2Ser_Client(Socket2Ser_Base):
                 self.socket_stock[socket_id] = new_sock
                 out_str = b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x00"
                 self.com_send_Queue.put(out_str)
-                recv_let = self.pool.spawn_n(self.net_recv, new_sock, socket_id)
-                recv_let.link(self.socket_on_close)
+                self.pool.spawn_n(self.net_recv, new_sock, socket_id)                
                 # 启动网络 收报 协程
                 print ("accept success.")
             except (SystemExit, KeyboardInterrupt):
@@ -194,21 +207,6 @@ class Socket2Ser_Client(Socket2Ser_Base):
                 # self.socket_pool.put(id)
         super().com_leading_packet_proc()
 
-
-def send_keepalive():
-    pkt = eventlet.packet.Packet()
-    pkt.__str__() # '\x01\x00\x00\x00\x02\x00\x00\x00' (20 bytes)
-    sock.send(pkt)
-    print('sent keepalive')
-while True:
-    eventlet.sleep(1) # wait for keepalive packet response
-    if not sock.getsockopt(eventlet.socket.SOL_SOCKET, eventlet.socket.SO_ERROR): # check if socket is closed gracefully
-        send_keepalive() # send keepalive packet again if possible
-        break # exit the loop and reconnect to server if necessary
-else:
-    print('connection closed')
-    sock.close() # close the socket when connection is lost unexpectedly
-    
 class Socket2Ser_Server(Socket2Ser_Base):
     def Start(self):
         #pool.spawn_n(self.com_recv)
@@ -244,12 +242,22 @@ class Socket2Ser_Server(Socket2Ser_Base):
             and self.com_leading_packet_buf[3] == 0x02:
                 # 运行在服务器模式下：
                 # 收到客户端的连接已中断关闭
-                print ("close connect ", self.com_leading_packet_buf[2])
+                socket_id = self.com_leading_packet_buf[2]
+                print ("close connect ", socket_id)
                 # 不管 是否 成功, 先必须把前导符号消除，避免后面进入协程切换状态
                 self.com_leading_packet_buf = b""
                 self.com_in_status = False
-                sock = self.socket_stock[self.com_leading_packet_buf[2]]
-                sock.close()
+                if socket_id in self.socket_stock:
+                    sock = self.socket_stock[socket_id]
+                    # 字典pop不会被协程切走，先干为快
+                    self.socket_stock.pop(socket_id)
+                    # 下面的应该有很严密的时间先后关系
+                    # 因为在协程体系下，使可能被其他协程切换出去的
+                    sock.close()
+                    #self.com_send_Queue.put(b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x02")
+                    # 无需发到对端，因为是对端通告来的关闭信号
+                    self.socket_pool.put(socket_id)
+
         super().com_leading_packet_proc()
 
 if __name__ == "__main__":
