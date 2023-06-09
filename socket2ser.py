@@ -20,7 +20,7 @@ from __future__ import absolute_import, print_function
 #    FF XX ZZ ZZ (XX 不等于 FF 或 FE) ... FF XX 00 00
 #    XX是约定的新连接序号，后面就是实际的数据包内容，
 #    ZZ ZZ 是数据包长度
-#    FF XX 00 00 标识负载数据帧结束了
+#    FF XX 00 00 是数据负载的帧尾，标识负载数据帧结束了
 
 import eventlet
 import serial
@@ -70,6 +70,7 @@ class Socket2Ser_Base:
         while True:
             try:
                 d = sock.recv(65535)
+                print ("R\t", len(d), end="\t", flush=True)
             except Exception as e:
                 # 对付可能的接收错误，特别是sock失效了
                 # 当然可能是被主协程给关掉了
@@ -109,6 +110,7 @@ class Socket2Ser_Base:
             if id in self.socket_stock:
                 sock = self.socket_stock[id]
                 sock.send(buf)
+                print ("S\t", len(buf), flush=True)
     def print_hex(self, buf, f):
         # 把输入的 bytes 打印成 16进制形式
         hex = ''
@@ -133,12 +135,12 @@ class Socket2Ser_Base:
                     self.print_hex(d, "_")
                 while len(d) > 0:
                     if leading_packet > 0:
+                        leading_packet += 1
                         self.com_leading_packet_buf += d[0:1]
                         d = d[1:]
-                        leading_packet += 1
                         if leading_packet == 4:
-                            self.com_leading_packet_proc()
                             leading_packet = 0
+                            self.com_leading_packet_proc()
                     else:
                         if d[0] == 0xff:
                             FF_Count += 1
@@ -158,27 +160,28 @@ class Socket2Ser_Base:
                             leading_packet = 2
                             if len(comOutBuf) > 0:
                                 # 似乎有点问题，如果没有新的祯头，接收到的完整com数据负载就不外发？
-                                # 已用数据负载帧的结束符解决此问题
+                                # ....已用数据负载帧的结束帧尾标记解决此问题
                                 self.net_send_Queue.put((self.com_sock_id_online, comOutBuf))
                                 comOutBuf = b""
             except (SystemExit, KeyboardInterrupt):
                 break
     def com_leading_packet_proc(self):
-        if len(self.com_leading_packet_buf) == 2 \
-            and self.com_leading_packet_buf[:2] == b"\xff\xff":
-            self.net_send_Queue.put((self.com_sock_id_online, b"\xff"))
+        if self.com_leading_packet_buf[1] != b"\xfe":
+            # 说明是数据负载 帧
+            self.com_sock_id_online = self.com_leading_packet_buf[1]
             self.com_leading_packet_buf = b""
-            self.com_in_status = False
         else:
-            if len(self.com_leading_packet_buf) >= 2 \
-                and self.com_leading_packet_buf[:2] != b"\xff\xfe":
-                self.com_sock_id_online = self.com_leading_packet_buf[1]
-                self.com_leading_packet_buf = b""
-                self.com_in_status = False
+            if self.com_leading_packet_buf[3] == 2:
+                # 收到 对端 发来的连接已断开，则断开 己方 的连接
+                sock_id = self.com_leading_packet_buf[2]
+                if sock_id in self.socket_stock:
+                    sock = self.socket_stock[sock_id]
+                    sock.close()
+            # 00 发起连接 操作指示，应该在 client 的子类中定义
+            # 01 连接失败 操作指示，应该在 server 的子类中定义
+
         
 class Socket2Ser_Client(Socket2Ser_Base):
-    def socket_on_close(self):
-        pass
     def Start(self):
         print ("self.ip", self.ip)
         server_sock = eventlet.listen((self.ip, self.port), reuse_addr = True, backlog=0xfe)
@@ -216,16 +219,14 @@ class Socket2Ser_Client(Socket2Ser_Base):
             except (SystemExit, KeyboardInterrupt):
                 break
     def com_leading_packet_proc(self):
-        if len(self.com_leading_packet_buf) >=4 \
-            and self.com_leading_packet_buf[1] == b"\xFE" \
+        if self.com_leading_packet_buf[1] == b"\xFE" \
             and self.com_leading_packet_buf[3] == b"\x01":
                 # 运行在客户模式下：
-                # 服务器返回连接失败的处理
+                # 01服务器返回连接失败的处理
                 id = struct.unpack("!B", self.com_Forward_buf[1])
                 sock = self.socket_stock[id]
                 # 不管 close 是否 成功, 先必须把前导符号消除，因为 close 的动作会进入协程切换状态
                 self.com_leading_packet_buf = b""
-                self.com_in_status = False
                 sock.close()
                 # 此处可以不回收 id，断开后，在net_recv中会有处理
                 # self.socket_pool.put(id)
@@ -241,47 +242,25 @@ class Socket2Ser_Server(Socket2Ser_Base):
         self.com_recv() # 进入读取 com 口的循环
     def com_leading_packet_proc(self):
         #print ("buf:",self.com_leading_packet_buf)
-        if len(self.com_leading_packet_buf) >=4:
-            if self.com_leading_packet_buf[:2] == b"\xff\xfe" \
-            and self.com_leading_packet_buf[3] == 0x00:
-                # 运行在服务器模式下：
-                # 收到客户端的连接请求的处理
-                print ("try fork ...", self.ip, self.port, end=" ")
-                id = self.com_leading_packet_buf[2]
-                # 不管 connect 是否 成功, 先必须把前导符号消除，因为 connect 的动作会进入协程切换状态
-                self.com_leading_packet_buf = b""
-                self.com_in_status = False
-                try:
-                    sock = eventlet.connect((self.ip, self.port))
-                    print ("fork a connect", end=" ")
-                    self.socket_stock[id] = sock
-                    print("accepted", id)
-                    self.pool.spawn_n(self.net_recv, sock, id)
-                    # 启动网络 收报 协程
-                except:
-                    # 连接服务失败
-                    out_str = b"\xff\xfe" + struct.pack("!B", id) + b"\x01"
-                    self.com_send_Queue.put(out_str)
-            if self.com_leading_packet_buf[:2] == b"\xff\xfe" \
-            and self.com_leading_packet_buf[3] == 0x02:
-                # 运行在服务器模式下：
-                # 收到客户端的连接已中断关闭
-                socket_id = self.com_leading_packet_buf[2]
-                print ("close connect ", socket_id)
-                # 不管 是否 成功, 先必须把前导符号消除，避免后面进入协程切换状态
-                self.com_leading_packet_buf = b""
-                self.com_in_status = False
-                if socket_id in self.socket_stock:
-                    sock = self.socket_stock[socket_id]
-                    # 字典pop不会被协程切走，先干为快
-                    self.socket_stock.pop(socket_id)
-                    # 下面的应该有很严密的时间先后关系
-                    # 因为在协程体系下，使可能被其他协程切换出去的
-                    sock.close()
-                    #self.com_send_Queue.put(b"\xff\xfe" + struct.pack("!B", socket_id) + b"\x02")
-                    # 无需发到对端，因为是对端通告来的关闭信号
-                    self.socket_pool.put(socket_id)
-
+        if self.com_leading_packet_buf[1] == b"\xFE" \
+            and self.com_leading_packet_buf[3] == b"\x00":
+            # 运行在服务器模式下：
+            # 00 收到客户端的连接请求的处理
+            print ("try fork ...", self.ip, self.port, end=" ")
+            id = self.com_leading_packet_buf[2]
+            # 不管 connect 是否 成功, 先必须把前导符号消除，因为 connect 的动作会进入协程切换状态
+            self.com_leading_packet_buf = b""
+            try:
+                sock = eventlet.connect((self.ip, self.port))
+                print ("fork a connect", end=" ")
+                self.socket_stock[id] = sock
+                print("accepted", id)
+                self.pool.spawn_n(self.net_recv, sock, id)
+                # 启动网络 收报 协程
+            except:
+                # 连接服务失败
+                out_str = b"\xff\xfe" + struct.pack("!B", id) + b"\x01"
+                self.com_send_Queue.put(out_str)
         super().com_leading_packet_proc()
 
 if __name__ == "__main__":
