@@ -5,7 +5,11 @@ from __future__ import absolute_import, print_function
 # FF 是特殊标识字符，如果在 负载数据中有 FF，则用 连续的两个 FF 代替，即 FF FF = FF 实际字符
 # 遇到 一个 FF，就说明是数据帧的 开始
 # 1. 连接、断开 指示数据帧
-#    FF FE XX YY
+#    FF FE XX YY  
+# （负载数据中万一出现 FF FE 这种情况，由于 FF 被 展开成了 FF FF， 
+#   所以 必定是 FF FF FE，这样就避免了识别混淆问题)
+#  (若 负载数据 最后一个字符是 FF，数据流将会是 FF FF FF FE 的情况，
+#   即 FE 前面若有 偶数个 FF，说明是负载数据，若有奇数个 FF，说明是帧头数据)
 #    XX是约定的连接序号
 #  1) YY = 00 新连接发起, 
 #    服务器端，连接成功后，则不回复，进入正常数据发送
@@ -13,9 +17,10 @@ from __future__ import absolute_import, print_function
 #  2) YY = 01 若服务器端连接失败，则返回 FF FE XX 01
 #  3) YY = 02 若网络连接（无论哪S/T端）断开，向对端发送 FF FE XX 02，通知对端相应的连接
 # 2. 负载数据帧
-#    FF XX ZZ ZZ (XX 不等于 FF 或 FE) ...
+#    FF XX ZZ ZZ (XX 不等于 FF 或 FE) ... FF XX 00 00
 #    XX是约定的新连接序号，后面就是实际的数据包内容，
 #    ZZ ZZ 是数据包长度
+#    FF XX 00 00 标识负载数据帧结束了
 
 import eventlet
 import serial
@@ -64,7 +69,7 @@ class Socket2Ser_Base:
     def net_recv(self, sock, socket_id):
         while True:
             try:
-                d = sock.recv(32384)
+                d = sock.recv(65535)
             except Exception as e:
                 # 对付可能的接收错误，特别是sock失效了
                 # 当然可能是被主协程给关掉了
@@ -78,7 +83,8 @@ class Socket2Ser_Base:
                 # 1. 有实际数据来，阻塞会打开，返回实际数据
                 # 2. 对端断开连接，阻塞也会打开，返回空数据
                 d = d.replace(b"\xff",b"\xff\xff")
-                d = b"\xff" + struct.pack("!B", socket_id) + d
+                d = b"\xff" + struct.pack("!BH", socket_id, len(d)) + d \
+                    + b"\xff" + struct.pack("!B", socket_id) + b"\x00\x00"
                 self.com_send_Queue.put(d)
             else:
                 # 对端已断开连接
@@ -116,31 +122,45 @@ class Socket2Ser_Base:
             if self.debug:
                 self.print_hex(buf, "-")
     def com_recv(self):
+        FF_Count = 0
+        leading_packet = 0
+        comOutBuf = b""
         while True:
             try:
                 g = self.pool.spawn(self.com.recv)
                 d = g.wait() # 协程读取com口
                 if self.debug:
                     self.print_hex(d, "_")
-                b = b""
                 while len(d) > 0:
-                    d0 = d[0:1]
-                    d = d[1:]
-                    if self.com_in_status:
-                        # 前导处理状态
-                        self.com_leading_packet_buf += d0
-                        self.com_leading_packet_proc()
+                    if leading_packet > 0:
+                        self.com_leading_packet_buf += d[0:1]
+                        d = d[1:]
+                        leading_packet += 1
+                        if leading_packet == 4:
+                            self.com_leading_packet_proc()
+                            leading_packet = 0
                     else:
-                        if d0 == b"\xff":
-                            if len(b) > 0:
-                                self.net_send_Queue.put((self.com_sock_id_online, b))
-                                b = b""
-                            self.com_leading_packet_buf = b"\xff"
-                            self.com_in_status = True
+                        if d[0] == 0xff:
+                            FF_Count += 1
+                            if FF_Count == 2:
+                                comOutBuf += b"\xff"
+                                FF_Count = 0
+                                d = d[1:]
+                        elif FF_Count == 0:
+                            comOutBuf += d[0:1]
+                            d = d[1:]
                         else:
-                            b += d0
-                if len(b) > 0:
-                    self.net_send_Queue.put((self.com_sock_id_online, b))
+                            # d[0] != 0xff and FF_Count == 1
+                            # 此种情况，说明遇见 帧头数据 了
+                            FF_Count = 0
+                            self.com_leading_packet_buf = b"\xff" + d[0:1]
+                            d = d[1:]
+                            leading_packet = 2
+                            if len(comOutBuf) > 0:
+                                # 似乎有点问题，如果没有新的祯头，接收到的完整com数据负载就不外发？
+                                # 已用数据负载帧的结束符解决此问题
+                                self.net_send_Queue.put((self.com_sock_id_online, comOutBuf))
+                                comOutBuf = b""
             except (SystemExit, KeyboardInterrupt):
                 break
     def com_leading_packet_proc(self):
