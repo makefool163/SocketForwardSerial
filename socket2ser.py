@@ -220,17 +220,18 @@ class Socket2Ser_Client(Socket2Ser_Base):
                 break
     def com_leading_packet_proc(self):
         if self.com_leading_packet_buf[1] == b"\xFE" \
-            and self.com_leading_packet_buf[3] == b"\x01":
-                # 运行在客户模式下：
-                # 01服务器返回连接失败的处理
-                id = struct.unpack("!B", self.com_Forward_buf[1])
-                sock = self.socket_stock[id]
-                # 不管 close 是否 成功, 先必须把前导符号消除，因为 close 的动作会进入协程切换状态
-                self.com_leading_packet_buf = b""
-                sock.close()
-                # 此处可以不回收 id，断开后，在net_recv中会有处理
-                # self.socket_pool.put(id)
-        super().com_leading_packet_proc()
+        and self.com_leading_packet_buf[3] == 1:
+            # 运行在客户模式下：
+            # 01服务器返回连接失败的处理
+            id = struct.unpack("!B", self.com_Forward_buf[1])
+            sock = self.socket_stock[id]
+            # 不管 close 是否 成功, 先必须把前导符号消除，因为 close 的动作会进入协程切换状态
+            self.com_leading_packet_buf = b""
+            sock.close()
+            # 此处可以不回收 id，断开后，在net_recv中会有处理
+            # self.socket_pool.put(id)
+        else:
+            super().com_leading_packet_proc()
 
 class Socket2Ser_Server(Socket2Ser_Base):
     def Start(self):
@@ -243,7 +244,7 @@ class Socket2Ser_Server(Socket2Ser_Base):
     def com_leading_packet_proc(self):
         #print ("buf:",self.com_leading_packet_buf)
         if self.com_leading_packet_buf[1] == b"\xFE" \
-            and self.com_leading_packet_buf[3] == b"\x00":
+        and self.com_leading_packet_buf[3] == 0:
             # 运行在服务器模式下：
             # 00 收到客户端的连接请求的处理
             print ("try fork ...", self.ip, self.port, end=" ")
@@ -261,11 +262,12 @@ class Socket2Ser_Server(Socket2Ser_Base):
                 # 连接服务失败
                 out_str = b"\xff\xfe" + struct.pack("!B", id) + b"\x01"
                 self.com_send_Queue.put(out_str)
-        super().com_leading_packet_proc()
+        else:
+            super().com_leading_packet_proc()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Forward socket service to another computer via a serial port.")
-    parser.add_argument('Action', choices=['S', 'T'], type=str, help='act as forwarding Source or Target')
+    parser.add_argument('Action', choices=['S', 'C'], type=str, help='act as forwarding Server or Client')
     parser.add_argument('-ip', default='localhost', type=str, help="Connect to Server IP when act as Source, default is localhost")
     parser.add_argument('-port', default=22, type=int, nargs=1, required=True, help='Connect to Server port when act as source/Listen port when act as target, default is 22')
     parser.add_argument('-com', type=str, nargs=1, required=True, help="Serial Port")
