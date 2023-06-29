@@ -40,5 +40,11 @@ options:
   I used eventlet lib package for long ago, it's very smart and lightweight.  
   I have only tested this program on windows, if you use other operating systems, you will have to try it yourself.  
 
-  3.3 TODO  
+  3.3 And More  
+  I worked on this project for about two weeks, designing a simple serial communication protocol, which is defined in the python source code comments.  
+  How to buy serial port hardware equipment? Search for USB to CH340 on the shopping platform to try it out.  
+  The other can not say. If you get it, you get it.  
+
+
+  3.4 TODO  
   I will rewrite the console program by "GO", and I have not used "GO" any more.
