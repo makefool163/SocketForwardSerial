@@ -34,8 +34,7 @@ options:
   3.1 A Gui Interface  
   In addition to the console mode, for ease of use, I wrote a GUI version of the program.  
   You can run 'gui-s2s.py'.  
-  In addition to the console mode, for ease of use, I wrote a GUI version of the program.
-  The GUI interface (gui-s2s.ui) is build by pygubu-designer (I like it very much).
+  The GUI interface (gui-s2s.ui) is build by pygubu-designer (I like it very much).  
  
   3.2 Others  
   This program used eventlet and pyserial lib package to do some green threads, so you must install evenlet by "pip install eventlet pyserial" or "conda install eventlet pyserial".  
