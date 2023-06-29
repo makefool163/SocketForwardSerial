@@ -5,6 +5,8 @@ Forward socket service to another computer via a serial port.
 This project is Not like socat or netcat, which can only forward one connect to host, and when the connect is closed, it shall be unused.  
 This project can allow multi-connects to socket server through one serial channel, and each connection will not affect each other.  
 When some connects are closed, the channel can wait other connection is initiated.  
+Due to the program's custom protocol restrictions, the maximum number of simultaneous socket connections allowed can only be 253 (0xfd), which is far less than the number allowed by the operating system, in fact, enough to use.  
+
 
 **2. How to use**
 
