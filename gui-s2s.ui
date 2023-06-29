@@ -1,0 +1,155 @@
+<?xml version='1.0' encoding='utf-8'?>
+<interface version="1.3">
+  <object class="tk.Toplevel" id="baseToplevel" named="True">
+    <property name="height">480</property>
+    <property name="resizable">none</property>
+    <property name="title" translatable="yes">gui-socket2serial</property>
+    <property name="width">640</property>
+    <child>
+      <object class="ttk.Combobox" id="cmbox_bdrate" named="True">
+        <property name="takefocus">false</property>
+        <property name="values">9600 19200 38400 56000 115200 128000 460800 921600 1500000 2000000</property>
+        <layout manager="grid">
+          <property name="column">1</property>
+          <property name="row">3</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Combobox" id="cmbox_COM" named="True">
+        <layout manager="grid">
+          <property name="column">0</property>
+          <property name="row">3</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Button" id="btServer" named="True">
+        <property name="text" translatable="yes">Run as Server</property>
+        <bind sequence="&lt;ButtonPress&gt;" handler="runS_click" add="" />
+        <layout manager="grid">
+          <property name="column">0</property>
+          <property name="row">0</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="pygubu.builder.widgets.tkinterscrolledtext" id="txtSend" named="True">
+        <property name="height">40</property>
+        <property name="width">40</property>
+        <layout manager="grid">
+          <property name="column">0</property>
+          <property name="columnspan">2</property>
+          <property name="row">5</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="pygubu.builder.widgets.tkinterscrolledtext" id="txtRecv" named="True">
+        <property name="height">40</property>
+        <property name="width">40</property>
+        <layout manager="grid">
+          <property name="column">2</property>
+          <property name="columnspan">2</property>
+          <property name="row">5</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Label" id="label1">
+        <property name="text" translatable="yes">socket Send</property>
+        <layout manager="grid">
+          <property name="column">0</property>
+          <property name="columnspan">2</property>
+          <property name="row">4</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Label" id="label2">
+        <property name="text" translatable="yes">socket Recv</property>
+        <layout manager="grid">
+          <property name="column">2</property>
+          <property name="columnspan">2</property>
+          <property name="row">4</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Label" id="label5">
+        <property name="text" translatable="yes">COM</property>
+        <layout manager="grid">
+          <property name="column">0</property>
+          <property name="row">2</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Label" id="label6">
+        <property name="text" translatable="yes">BaudRate</property>
+        <layout manager="grid">
+          <property name="column">1</property>
+          <property name="row">2</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Button" id="btClient" named="True">
+        <property name="text" translatable="yes">Run as Client</property>
+        <bind sequence="&lt;ButtonPress&gt;" handler="runC_click" add="" />
+        <layout manager="grid">
+          <property name="column">0</property>
+          <property name="row">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Entry" id="etPS" named="True">
+        <property name="text" translatable="yes">22</property>
+        <property name="textvariable">int:intPortS</property>
+        <layout manager="grid">
+          <property name="column">3</property>
+          <property name="row">0</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Entry" id="etPC" named="True">
+        <property name="text" translatable="yes">12222</property>
+        <property name="textvariable">int:intPortC</property>
+        <layout manager="grid">
+          <property name="column">3</property>
+          <property name="row">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Label" id="label7">
+        <property name="text" translatable="yes">Port Forward</property>
+        <layout manager="grid">
+          <property name="column">2</property>
+          <property name="row">0</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Label" id="label8">
+        <property name="text" translatable="yes">Port Listen</property>
+        <layout manager="grid">
+          <property name="column">2</property>
+          <property name="row">1</property>
+        </layout>
+      </object>
+    </child>
+    <child>
+      <object class="ttk.Entry" id="entry1">
+        <property name="text" translatable="yes">localhost</property>
+        <property name="textvariable">string:strIP_S</property>
+        <layout manager="grid">
+          <property name="column">1</property>
+          <property name="row">0</property>
+        </layout>
+      </object>
+    </child>
+  </object>
+</interface>
