@@ -34,21 +34,20 @@ options:
   
   **4. Speical**
     
-  3.1 A Gui Interface  
+  4.1 A Gui Interface  
   In addition to the console mode, for ease of use, I wrote a GUI version of the program.  
   You can run 'gui-s2s.py'.  
   The GUI interface (gui-s2s.ui) is build by pygubu-designer (I like it very much).  
  
-  3.2 Others  
+  4.2 Others  
   This program used eventlet and pyserial lib package to do some green threads, so you must install evenlet by "pip install eventlet pyserial" or "conda install eventlet pyserial".  
   I used eventlet lib package for long ago, it's very smart and lightweight.  
   I have only tested this program on windows, if you use other operating systems, you will have to try it yourself.  
 
-  3.3 And More  
+  4.3 And More  
   I worked on this project for about two weeks, designing a simple serial communication protocol, which is defined in the python source code comments.  
   How to buy serial port hardware equipment? Search for USB to CH340 on the shopping platform to try it out.  
   The other can not say. If you get it, you get it.  
 
-
-  3.4 TODO  
+  4.4 TODO  
   I will rewrite the console program by "GO", and I have not used "GO" any more.
