@@ -31,6 +31,7 @@ from eventlet import tpool, backdoor
 import socket
 # 此处 socket 模块的作用 是用来引入几个配置参数常量
 import os
+import re
 
 class SerialSocket2(serial.Serial):
     def recv(self):
@@ -123,6 +124,7 @@ class Socket2Ser_Base:
                         eventlet.sleep(0.1)
                 #d = sock.recv(65535)
                 d = sock.recv(32768)
+                eventlet.sleep(0)
                 if self.debug >= 1:
                     print ("R\t", len(d), end="\t", flush=True)
                     if self.__class__ != "__main__.Socket2Ser_Client":
@@ -146,6 +148,7 @@ class Socket2Ser_Base:
                 d = b"\xff" + struct.pack("!BH", socket_id, len(d)) + d \
                     + b"\xff" + struct.pack("!B", socket_id) + b"\x00\x00"
                 self.com_send_Queue.put(d)
+                eventlet.sleep(0)
             else:
                 # 对端已断开连接
                 # 要把这个中断信号传递到对端去... 
@@ -234,10 +237,10 @@ class Socket2Ser_Base:
                     # 出现读错误，就跳出大循环，说明串口已经失败了
                     break
                 if self.debug >= 2:
-                    self.print_hex(d, "_")
+                    self.print_hex(d, "_")                    
                 d = comOutBuf +d
-                comOutBuf = b""
 
+                comOutBuf = b""
                 sp_d = d.split(b"\xff")
                 if sp_d[0] == b"":
                     # 若 0xff 是串的第一个，split会产生第一个空串
@@ -255,6 +258,9 @@ class Socket2Ser_Base:
                     i += 1
                 sp_d = [b"\xff" +s for s in sp_d]
                 # E--- 处理双连FF
+                if d[0] != 0xff:
+                    sp_d[0] = sp_d[0][1:]
+
                 try:
                     for i, s in enumerate(sp_d[:-1]):
                         if s[1] == 0xFE:

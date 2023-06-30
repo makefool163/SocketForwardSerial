@@ -38,7 +38,7 @@ class GuiS2SApp:
         self.cmbox_bdrate = ttk.Combobox(self.baseToplevel)
         self.cmbox_bdrate.configure(
             takefocus=False,
-            values='9600 19200 38400 56000 115200 128000 460800 921600 1500000 2000000')
+            values='9600 19200 38400 56000 115200 128000 230400 460800 921600 1500000 2000000')
         self.cmbox_bdrate.grid(column=1, row=3)
         self.cmbox_COM = ttk.Combobox(self.baseToplevel)
         self.cmbox_COM.grid(column=0, row=3)
@@ -158,7 +158,7 @@ class GuiS2SApp:
 
     def gui_debug(self, SC, inStr):
         if SC == "r":
-            self.txtRecv_idx +=1 
+            self.txtRecv_idx +=1
             #insert_pos = str(self.txtRecv_idx)+".0"
             #print (insert_pos, inStr)
             inStr = str(self.txtRecv_idx) + "\t" + inStr
@@ -167,7 +167,7 @@ class GuiS2SApp:
             self.txtRecv.update()
         else:
             self.txtSend_idx +=1
-            inStr = str(self.txtRecv_idx) + "\t" + inStr
+            inStr = str(self.txtSend_idx) + "\t" + inStr
             #self.txtSend.insert(str(self.txtSend_idx)+".0", inStr+"\n")
             self.txtSend.insert(tk.END, inStr+"\n")
             self.txtSend.update()
