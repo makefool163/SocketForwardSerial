@@ -102,14 +102,14 @@ class Socket2Ser_Base:
         print ("Stop Socket2Ser")
         try:
             self.com.close()
-        except:
-            pass
+        except Exception as e:
+            print (e)
         for sock_id in self.socket_stock:    
             try:        
                 sock = self.socket_stock[sock_id]
                 sock.close()
-            except:
-                pass
+            except Exception as e:
+                print (e)
         eventlet.sleep(2)
         # 稍等一下，让其他协程发现出错，完成退出动作
         # 好像也无必要，因为是协程状态，不存在释放资源的问题
@@ -262,37 +262,52 @@ class Socket2Ser_Base:
                         else:
                             if s[2:4] != b"\x00\x00":
                                 # 说明不是 负载 帧尾部
-                                socket_id = s[1]
-                                outS = s[4:].replace(b'\xff\xff', b'\xff')
-                                self.net_send_Queue.put((socket_id, outS))
+                                # 还得判断是不是 这段数据是不是完整的 负载帧
+                                if len(sp_d[i+1]) == 4 and sp_d[i+1][2:4] == b"\x00\x00":
+                                    # 看到了帧尾部才能把数据 交给下一个环节?
+                                    # ? 万一没有收到正确的帧 尾部怎么办？ 
+                                    # 不焦虑，目前还没有到考虑数据校验、重发的情况，还是得相信串口总是好的
+                                    # 如果是生产环境，必须要有 校验和重发 机制了
+                                    socket_id = s[1]
+                                    outS = s[4:].replace(b'\xff\xff', b'\xff')
+                                    self.net_send_Queue.put((socket_id, outS))
                             else:
                                 pass
                 except IndexError:
                     print ("Index Error ")
-                    for s in sp_d[:-1]:                        
+                    for s in sp_d[:-1]:
                         self.print_hex(s, " ")
                         print ("")
 
                 if self.com_log != None:
-                    for s in sp_d:
+                    for s in sp_d[:-1]:
                         self.com_log_file("R", s)
                 # 处理最后一个子串
                 s = sp_d[-1]
                 if len(s) == 4:
                     if s[1] == 0xFE:
+                        comOutBuf = b""
                         self.com_leading_packet_buf = s
                         self.com_leading_packet_proc()
                         if self.com_log != None:
                             self.com_log_file("R", s)
                     elif s[2:4] == b"\x00\x00":
                         #负载 帧尾部
+                        comOutBuf = b""
                         if self.com_log != None:
                             self.com_log_file("R", s)
                     else:
-                        comOutBuf = sp_d[-1]
+                        #负载 帧头，不处理
+                        comOutBuf = s
                 else:
-                    comOutBuf = sp_d[-1]
-
+                    # 负载帧，不处理，放到下一次再来
+                    comOutBuf = s
+                """
+                if self.debug >= 0:
+                    print ("spd[-1] ",end=" ")
+                    self.print_hex(comOutBuf, " ")
+                    print ("")
+                """
                 """
                 # 此处处理速度太慢，改写了加速版本
                 # --------
@@ -401,7 +416,10 @@ class Socket2Ser_Client(Socket2Ser_Base):
 
     def Stop(self):
         super().Stop()
-        self.server_sock.close()
+        try:
+            self.server_sock.close()
+        except Exception as e:
+            print (e)
     def com_leading_packet_proc(self):
         if self.com_leading_packet_buf[1] == b"\xFE" \
         and self.com_leading_packet_buf[3] == 1:
