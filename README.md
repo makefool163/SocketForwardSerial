@@ -28,8 +28,11 @@ options:
   -d {0,1,2,3}, --debug {0,1,2,3}  
                           set debug out  
   -b, --backdoor        set backdoor debug  
-    
-  **3. Speical**
+
+  **3. Warning**  
+  Because the communication protocol of this program does not use any data verification mechanism, do not use this program in a production environment.  
+  
+  **4. Speical**
     
   3.1 A Gui Interface  
   In addition to the console mode, for ease of use, I wrote a GUI version of the program.  

@@ -236,6 +236,7 @@ class Socket2Ser_Base:
                 if self.debug >= 2:
                     self.print_hex(d, "_")
                 d = comOutBuf +d
+                comOutBuf = b""
 
                 sp_d = d.split(b"\xff")
                 if sp_d[0] == b"":
@@ -262,22 +263,25 @@ class Socket2Ser_Base:
                         else:
                             if s[2:4] != b"\x00\x00":
                                 # 说明不是 负载 帧尾部
-                                # 还得判断是不是 这段数据是不是完整的 负载帧
-                                if len(sp_d[i+1]) == 4 and sp_d[i+1][2:4] == b"\x00\x00":
-                                    # 看到了帧尾部才能把数据 交给下一个环节?
-                                    # ? 万一没有收到正确的帧 尾部怎么办？ 
+                                l = struct.unpack("!H", s[2:4])
+                                if l[0] +4 == len(s):
+                                    # 还得判断是不是 这段数据是不是完整的 负载帧
                                     # 不焦虑，目前还没有到考虑数据校验、重发的情况，还是得相信串口总是好的
                                     # 如果是生产环境，必须要有 校验和重发 机制了
                                     socket_id = s[1]
                                     outS = s[4:].replace(b'\xff\xff', b'\xff')
                                     self.net_send_Queue.put((socket_id, outS))
+                                elif i == len(sp_d) -2:
+                                    # 如果是倒数第 2 帧，又不是完整的 负载帧
+                                    # 就得 考虑 往 下一次 处理了
+                                    comOutBuf = s
                             else:
                                 pass
                 except IndexError:
                     print ("Index Error ")
                     for s in sp_d[:-1]:
                         self.print_hex(s, " ")
-                        print ("")
+                        print ("___e")
 
                 if self.com_log != None:
                     for s in sp_d[:-1]:
@@ -298,10 +302,10 @@ class Socket2Ser_Base:
                             self.com_log_file("R", s)
                     else:
                         #负载 帧头，不处理
-                        comOutBuf = s
+                        comOutBuf += s
                 else:
                     # 负载帧，不处理，放到下一次再来
-                    comOutBuf = s
+                    comOutBuf += s
                 """
                 if self.debug >= 0:
                     print ("spd[-1] ",end=" ")
