@@ -30,7 +30,7 @@ options:
   -b, --backdoor        set backdoor debug  
 
   **3. Warning**  
-  Because the communication protocol of this program does not use any data verification mechanism, do not use this program in a production environment.  
+  Only parity check is used in the serial protocol of this project, and there is no error recurrence mechanism. If used in a production environment, please be careful not to use it for life support, military weapons, financial data and other occasions where data integrity is strictly required.  
   
   **4. Speical**
     

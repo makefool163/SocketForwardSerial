@@ -31,19 +31,6 @@ from eventlet import tpool, backdoor
 import socket
 # 此处 socket 模块的作用 是用来引入几个配置参数常量
 import os
-import re
-
-class SerialSocket2(serial.Serial):
-    def recv(self):
-        # 等待
-        data = tpool.execute(self.read, 1)
-        # 读完
-        while self.in_waiting:
-            try:
-                data += tpool.execute(self.read, self.in_waiting)
-            except Exception as e:
-                print (e)
-        return data
 
 class SerialSocket(serial.Serial):
     def recv(self):
@@ -54,14 +41,6 @@ class SerialSocket(serial.Serial):
             else:
                 eventlet.sleep(0)
                 # 切换到其他协程去
-
-def com_listen_message():
-    ss = SerialSocket2("com10")
-    buffer = b''
-    while True:
-        g = eventlet.spawn(ss.recv)
-        data = g.wait()
-        buffer +=data
 
 class Socket2Ser_Base:
     def __init__(self, ip, port, com_port, baud_rate, debug=0, gui_debug=None, com_log=None):
@@ -98,7 +77,11 @@ class Socket2Ser_Base:
         self.com_sock_id_online = 0 
         self.pool = eventlet.GreenPool()
     def Start(self):
-        self.com = SerialSocket(port=self.com_port, timeout=None, baudrate=self.baud_rate)
+        self.com = SerialSocket(port=self.com_port, \
+                                timeout=None, \
+                                parity=serial.PARITY_EVEN, \
+                                baudrate=self.baud_rate, \
+                                bytesize=serial.EIGHTBITS)
     def Stop(self):
         print ("Stop Socket2Ser")
         try:
