@@ -30,7 +30,15 @@ options:
   -b, --backdoor        set backdoor debug  
 
   **3. Warning**  
-  Only parity check is used in the serial protocol of this project, and there is no error recurrence mechanism. If used in a production environment, please be careful not to use it for life support, military weapons, financial data and other occasions where data integrity is strictly required.  
+
+  3.1 No verification
+  Because the communication protocol of this program does not use any data verification mechanism, do not use this program in a production environment.  
+  
+  3.2 Speed Limit
+  Don't expect the serial port to be very high speed, the average USB-to-serial device can run in duplex mode at most 500kbps. It is said that CH343 can work stably at 6Mbps, which is roughly 500kB. It hasn't been tested because there are no accessories.
+
+  3.3 Sftp
+  The sftp client must have the rate limiting and reconnection functions to forward sftp due to the speed and reliability of the serial port. winSCP is recommended, but FileZilla is not recommended.In my tests, the speed limit on winSCP was up to 32kB.
   
   **4. Speical**
     
