@@ -8,7 +8,7 @@
     <child>
       <object class="ttk.Combobox" id="cmbox_bdrate" named="True">
         <property name="takefocus">false</property>
-        <property name="values">9600 19200 38400 56000 115200 128000 460800 921600 1500000 2000000</property>
+        <property name="values">9600 19200 56000 115200 460800 921600 2000000 3000000 4000000</property>
         <layout manager="grid">
           <property name="column">1</property>
           <property name="row">3</property>
